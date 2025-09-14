@@ -447,13 +447,22 @@ impl<'a> BymlArrayReader<'a> {
             return Err(ReaderError::UnexpectedEnd(offset));
         }
 
-        // Read array length (first 3 bytes, 4th byte is node type)
-        let len = u32::from_le_bytes([
-            data[offset_usize],
-            data[offset_usize + 1],
-            data[offset_usize + 2],
-            0,
-        ]);
+        // Read node type (should be Array = 0xc0) and length (u24)
+        let _node_type = data[offset_usize];
+        let len = match reader.endian_internal() {
+            Endian::Little => u32::from_le_bytes([
+                data[offset_usize + 1],
+                data[offset_usize + 2],
+                data[offset_usize + 3],
+                0,
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                0,
+                data[offset_usize + 1],
+                data[offset_usize + 2],
+                data[offset_usize + 3],
+            ]),
+        };
 
         // Node types follow immediately after the header
         let node_types_start = offset_usize + 4;
@@ -538,19 +547,28 @@ impl<'a> BymlMapReader<'a> {
             return Err(ReaderError::UnexpectedEnd(offset));
         }
 
-        // Read map length
-        let len = u32::from_le_bytes([
-            data[offset_usize],
-            data[offset_usize + 1],
-            data[offset_usize + 2],
-            0,
-        ]);
+        // Read node type (should be Map = 0xc1) and length (u24)
+        let _node_type = data[offset_usize];
+        let len = match reader.endian_internal() {
+            Endian::Little => u32::from_le_bytes([
+                data[offset_usize + 1],
+                data[offset_usize + 2], 
+                data[offset_usize + 3],
+                0,
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                0,
+                data[offset_usize + 1],
+                data[offset_usize + 2],
+                data[offset_usize + 3],
+            ]),
+        };
 
         // Keys start immediately after the header
         let keys_offset = offset + 4;
 
-        // Values start after keys (each key is 3 bytes for string index + 1 byte for node type)
-        let values_offset = keys_offset + len * 4;
+        // Values start after keys (each key entry is 8 bytes: 3 bytes string index + 1 byte node type + 4 bytes value)
+        let values_offset = keys_offset;
 
         Ok(BymlMapReader {
             reader,
@@ -602,18 +620,28 @@ impl<'a> BymlMapReader<'a> {
         }
 
         let data = self.reader.data();
-        let key_offset = (self.keys_offset + index as u32 * 4) as usize;
+        // Each entry is 8 bytes: 3 bytes string index + 1 byte node type + 4 bytes value
+        let entry_offset = (self.keys_offset + index as u32 * 8) as usize;
 
-        if key_offset + 3 > data.len() {
-            return Err(ReaderError::UnexpectedEnd(key_offset as u32));
+        if entry_offset + 8 > data.len() {
+            return Err(ReaderError::UnexpectedEnd(entry_offset as u32));
         }
 
-        let string_index = u32::from_le_bytes([
-            data[key_offset],
-            data[key_offset + 1],
-            data[key_offset + 2],
-            0,
-        ]);
+        // String index is in first 3 bytes
+        let string_index = match self.reader.endian_internal() {
+            Endian::Little => u32::from_le_bytes([
+                data[entry_offset],
+                data[entry_offset + 1],
+                data[entry_offset + 2],
+                0,
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                0,
+                data[entry_offset],
+                data[entry_offset + 1], 
+                data[entry_offset + 2],
+            ]),
+        };
         self.reader.get_string(string_index)
     }
 
@@ -625,28 +653,25 @@ impl<'a> BymlMapReader<'a> {
 
         let data = self.reader.data();
 
-        // Get node type from key entry
-        let key_offset = (self.keys_offset + index as u32 * 4) as usize;
-        if key_offset + 4 > data.len() {
+        // Each entry is 8 bytes: 3 bytes string index + 1 byte node type + 4 bytes value
+        let entry_offset = (self.keys_offset + index as u32 * 8) as usize;
+        if entry_offset + 8 > data.len() {
             return None;
         }
-        let node_type_byte = data[key_offset + 3];
+
+        // Node type is at byte 3
+        let node_type_byte = data[entry_offset + 3];
         let node_type = NodeType::try_from(node_type_byte).ok()?;
 
-        // Get value data
-        let value_offset = (self.values_offset + index as u32 * 8) as usize;
-        if value_offset + 8 > data.len() {
-            return None;
-        }
-
+        // Value data is in bytes 4-7
         let mut value_data = [0u8; 8];
-        value_data.copy_from_slice(&data[value_offset..value_offset + 8]);
+        value_data[0..4].copy_from_slice(&data[entry_offset + 4..entry_offset + 8]);
 
         Some(BymlNodeReader::new(
             self.reader,
             node_type,
             value_data,
-            value_offset as u32,
+            entry_offset as u32 + 4,
         ))
     }
 }

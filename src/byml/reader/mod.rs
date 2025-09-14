@@ -83,6 +83,9 @@ mod tests {
     #[test]
     fn test_reader_parsing_all_files() {
         // Test parsing all the same files used by the owned API
+        // Only expect parsing success when the owned API also succeeds
+        use crate::byml::Byml;
+        
         for file in FILES {
             println!("Testing reader API with file: {}", file);
             
@@ -94,62 +97,72 @@ mod tests {
                     continue;
                 }
             };
-                
-            let reader = match BymlReader::new(&bytes) {
-                Ok(r) => r,
-                Err(e) => {
-                    println!("  Failed to create reader for {}: {:?}", file, e);
-                    continue;
-                }
-            };
-                
-            println!("  Version: {}", reader.version());
-            println!("  Endian: {:?}", reader.endian());
             
-            let root = reader.root();
-            println!("  Root node type: {:?}", root.node_type());
+            // First check if owned API can parse this file
+            let owned_result = Byml::from_binary(&bytes);
+            let reader_result = BymlReader::new(&bytes);
             
-            match root.node_type() {
-                NodeType::Array => {
-                    if let Ok(arr) = root.as_array() {
-                        println!("  Array with {} elements", arr.len());
-                        
-                        // Test accessing first few elements
-                        for i in 0..std::cmp::min(3, arr.len()) {
-                            if let Some(elem) = arr.get(i) {
-                                println!("    [{}]: {:?}", i, elem.node_type());
-                            }
-                        }
-                    }
-                }
-                NodeType::Map => {
-                    if let Ok(map) = root.as_map() {
-                        println!("  Map with {} entries", map.len());
-                        
-                        // Test iteration through first few entries
-                        let mut count = 0;
-                        for result in map.iter() {
-                            if count >= 3 { break; }
-                            match result {
-                                Ok((key, value)) => {
-                                    println!("    '{}': {:?}", key, value.node_type());
-                                }
-                                Err(e) => {
-                                    println!("    Error iterating map in {}: {:?}", file, e);
-                                    break;
+            match (&owned_result, &reader_result) {
+                (Ok(_), Ok(reader)) => {
+                    println!("  ✓ Successfully parsed");
+                    println!("  Version: {}", reader.version());
+                    println!("  Endian: {:?}", reader.endian());
+                    
+                    let root = reader.root();
+                    println!("  Root node type: {:?}", root.node_type());
+                    
+                    match root.node_type() {
+                        NodeType::Array => {
+                            if let Ok(arr) = root.as_array() {
+                                println!("  Array with {} elements", arr.len());
+                                
+                                // Test accessing first few elements
+                                for i in 0..std::cmp::min(3, arr.len()) {
+                                    if let Some(elem) = arr.get(i) {
+                                        println!("    [{}]: {:?}", i, elem.node_type());
+                                    }
                                 }
                             }
-                            count += 1;
+                        }
+                        NodeType::Map => {
+                            if let Ok(map) = root.as_map() {
+                                println!("  Map with {} entries", map.len());
+                                
+                                // Test iteration through first few entries
+                                let mut count = 0;
+                                for result in map.iter() {
+                                    if count >= 3 { break; }
+                                    match result {
+                                        Ok((key, value)) => {
+                                            println!("    '{}': {:?}", key, value.node_type());
+                                        }
+                                        Err(e) => {
+                                            println!("    Error iterating map in {}: {:?}", file, e);
+                                            break;
+                                        }
+                                    }
+                                    count += 1;
+                                }
+                            }
+                        }
+                        NodeType::HashMap => {
+                            if let Ok(hash_map) = root.as_hash_map() {
+                                println!("  HashMap with {} entries", hash_map.len());
+                            }
+                        }
+                        _ => {
+                            println!("  Primitive value: {:?}", root.node_type());
                         }
                     }
-                }
-                NodeType::HashMap => {
-                    if let Ok(hash_map) = root.as_hash_map() {
-                        println!("  HashMap with {} entries (no iterator available yet)", hash_map.len());
-                    }
-                }
-                _ => {
-                    println!("  Primitive value: {:?}", root.node_type());
+                },
+                (Err(_), Err(_)) => {
+                    println!("  ✓ Both APIs failed as expected");
+                },
+                (Ok(_), Err(e)) => {
+                    panic!("Reader API failed to parse file '{}' that owned API can parse: {:?}", file, e);
+                },
+                (Err(_), Ok(_)) => {
+                    println!("  ⚠ Reader API succeeded where owned API failed");
                 }
             }
         }
@@ -399,6 +412,57 @@ mod tests {
                     
                     println!("Testing primitives in file: {}", file);
                     test_primitives(&reader.root(), file, 3); // Limit depth to 3 levels
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn debug_map_structure() {
+        use crate::byml::Byml;
+        
+        let data = std::fs::read("test/byml/ActorInfo.product.byml").unwrap();
+        
+        // Test owned API first
+        let owned = Byml::from_binary(&data).unwrap();
+        if let Ok(map) = owned.as_map() {
+            println!("Owned API map has {} entries", map.len());
+            for (i, (key, _value)) in map.iter().enumerate() {
+                if i >= 5 { break; }
+                println!("  Key {}: '{}'", i, key);
+            }
+        }
+        
+        // Debug reader API creation
+        let reader = BymlReader::new(&data).unwrap();
+        println!("Reader endian: {:?}", reader.endian());
+        println!("Reader header: version={}, root_offset=0x{:x}", 
+                 reader.version(), reader.root_offset());
+        
+        let root = reader.root();
+        println!("Root node type: {:?}", root.node_type());
+        
+        // Debug the raw root node data
+        let root_offset = reader.root_offset() as usize;
+        let root_bytes = &data[root_offset..root_offset+16];
+        println!("Raw root bytes: {:02x?}", root_bytes);
+        
+        if let Ok(reader_map) = root.as_map() {
+            println!("Reader API map reports {} entries", reader_map.len());
+            
+            // Debug the raw map structure
+            let map_offset = reader.root_offset() as usize;
+            let map_header = &data[map_offset..map_offset+8];
+            println!("Raw map header: {:02x?}", map_header);
+            
+            // Try to read first few keys manually
+            for i in 0..std::cmp::min(2, reader_map.len()) {
+                match reader_map.get_key_at_index(i) {
+                    Ok(key) => println!("  Key {}: '{}'", i, key),
+                    Err(e) => {
+                        println!("  Key {}: ERROR {:?}", i, e);
+                        break;
+                    }
                 }
             }
         }

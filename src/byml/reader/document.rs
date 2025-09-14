@@ -105,28 +105,36 @@ impl<'a> BymlReader<'a> {
             return Err(ReaderError::InvalidOffset(offset as u32));
         }
 
-        // Tables start with a 3-byte length followed by node type
+        // Tables start with 1 byte node type + 3-byte entry count
         if offset + 4 > data.len() {
             return Err(ReaderError::UnexpectedEnd(offset as u32));
         }
 
-        // Read table length
-        let table_length = u32::from_le_bytes([
-            data[offset],
+        // Skip the node type byte (should be StringTable = 0xc2)
+        // Read the 3-byte entry count that follows
+        let entry_count = u32::from_le_bytes([
             data[offset + 1],
             data[offset + 2],
-            0, // High byte is the node type, not part of length
-        ]) as usize;
+            data[offset + 3],
+            0, // Pad with zero for 4th byte
+        ]);
 
-        let table_end = offset + 4 + table_length * 4; // 4 bytes per entry + header
-        if table_end > data.len() {
+        // Calculate minimum table size: 4 bytes header + entry_count * 4 bytes offsets
+        let min_table_size = 4 + entry_count * 4;
+        
+        // We can't easily determine the exact end of the table since string data
+        // follows the offset table, but we need at least the offset table
+        let min_table_end = offset + min_table_size as usize;
+        if min_table_end > data.len() {
             return Err(ReaderError::InvalidFormat(format!(
                 "{} extends beyond data bounds",
                 table_name
             )));
         }
 
-        Ok(&data[offset..table_end])
+        // Return the entire remaining data from the table start
+        // The actual string data extends beyond the offset table
+        Ok(&data[offset..])
     }
 
     /// Get the version of the BYML format
@@ -174,8 +182,11 @@ impl<'a> BymlReader<'a> {
             )));
         }
 
-        // Get table entry count (first 3 bytes)
-        let entry_count = u32::from_le_bytes([table[0], table[1], table[2], 0]);
+        // Get table entry count (bytes 1-3 after node type byte)
+        let entry_count = match self.endian {
+            Endian::Little => u32::from_le_bytes([table[1], table[2], table[3], 0]),
+            Endian::Big => u32::from_be_bytes([0, table[1], table[2], table[3]]),
+        };
 
         if index >= entry_count {
             return Err(ReaderError::InvalidFormat(format!(
@@ -230,6 +241,12 @@ impl<'a> BymlReader<'a> {
     /// Get endianness for internal use
     pub(crate) fn endian_internal(&self) -> Endian {
         self.endian
+    }
+    
+    /// Get root node offset for debugging
+    #[cfg(test)]
+    pub(crate) fn root_offset(&self) -> u32 {
+        self.header.root_node_offset
     }
 }
 
