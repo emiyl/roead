@@ -1111,6 +1111,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_reader_basic_smoke_test() {
+        // Test that reader API is accessible
+        let invalid_data = b"INVALID";
+        assert!(reader::BymlReader::new(invalid_data).is_err());
+    }
+
+    #[test]
     fn accessors() {
         let mut actorinfo =
             Byml::from_binary(std::fs::read("test/byml/ActorInfo.product.byml").unwrap()).unwrap();
