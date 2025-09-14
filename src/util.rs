@@ -45,16 +45,12 @@ const _: () = {
         ) -> binrw::BinResult<Self> {
             let buf: [u8; 3] = binrw::BinRead::read(reader)?;
             match endian {
-                binrw::Endian::Little => {
-                    Ok(u24(u32::from(buf[0])
-                        | u32::from(buf[1]) << 8
-                        | u32::from(buf[2]) << 16))
-                }
-                binrw::Endian::Big => {
-                    Ok(u24(u32::from(buf[2])
-                        | u32::from(buf[1]) << 8
-                        | u32::from(buf[0]) << 16))
-                }
+                binrw::Endian::Little => Ok(u24(u32::from(buf[0])
+                    | u32::from(buf[1]) << 8
+                    | u32::from(buf[2]) << 16)),
+                binrw::Endian::Big => Ok(u24(u32::from(buf[2])
+                    | u32::from(buf[1]) << 8
+                    | u32::from(buf[0]) << 16)),
             }
         }
     }

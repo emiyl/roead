@@ -56,7 +56,7 @@ impl<'a> Iterator for FileIterator<'a> {
             .ok()?;
             self.index += 1;
             Some(File {
-                name:  if self.entry.rel_name_opt_offset != 0 {
+                name: if self.entry.rel_name_opt_offset != 0 {
                     let name_offset = self.sarc.names_offset as usize
                         + (self.entry.rel_name_opt_offset & 0xFFFFFF) as usize * 4;
                     let term_pos = find_null(&self.sarc.data[name_offset..]).ok()?;
@@ -67,12 +67,12 @@ impl<'a> Iterator for FileIterator<'a> {
                 } else {
                     None
                 },
-                data:  self.sarc.data.get(
+                data: self.sarc.data.get(
                     (self.sarc.data_offset + self.entry.data_begin) as usize
                         ..(self.sarc.data_offset + self.entry.data_end) as usize,
                 )?,
                 index: self.index,
-                sarc:  self.sarc,
+                sarc: self.sarc,
             })
         }
     }
@@ -226,12 +226,10 @@ impl<'a> Sarc<'_> {
             reader.set_position(self.entries_offset as u64 + 0x10 * m as u64);
             let hash: u32 = read(self.endian, &mut reader)?;
             match needle_hash.cmp(&hash) {
-                std::cmp::Ordering::Less => {
-                    match m.checked_sub(1) {
-                        Some(v) => b = v,
-                        None => return Ok(None),
-                    }
-                }
+                std::cmp::Ordering::Less => match m.checked_sub(1) {
+                    Some(v) => b = v,
+                    None => return Ok(None),
+                },
                 std::cmp::Ordering::Greater => a = m + 1,
                 std::cmp::Ordering::Equal => return Ok(Some(m as usize)),
             }

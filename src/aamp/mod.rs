@@ -40,13 +40,13 @@ mod writer;
 use binrw::binrw;
 use indexmap::IndexMap;
 #[cfg(feature = "aamp-names")]
-pub use names::{get_default_name_table, NameTable};
+pub use names::{NameTable, get_default_name_table};
 use num_traits::AsPrimitive;
 #[cfg(feature = "with-serde")]
 use serde::{Deserialize, Serialize};
 use smartstring::alias::String;
 
-use crate::{types::*, util::u24, Error, Result};
+use crate::{Error, Result, types::*, util::u24};
 
 type ParameterStructureMap<V> =
     IndexMap<Name, V, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
@@ -1544,7 +1544,7 @@ pub struct ParameterList {
     /// Map of child parameter objects.
     pub objects: ParameterObjectMap,
     /// Map of child parameter lists.
-    pub lists:   ParameterListMap,
+    pub lists: ParameterListMap,
 }
 
 impl ParameterListing for ParameterList {
@@ -1814,7 +1814,7 @@ fn macros() {
         data_type: "xml".into(),
         version: 10,
         param_root: ParameterList {
-            lists:   lists!(
+            lists: lists!(
                 "test1" => ParameterList::new()
             ),
             objects: objs!(

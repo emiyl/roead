@@ -43,7 +43,7 @@
 //! ```
 mod parse;
 mod write;
-use binrw::{binrw, BinRead, BinWrite};
+use binrw::{BinRead, BinWrite, binrw};
 pub use parse::Sarc;
 pub use write::SarcWriter;
 

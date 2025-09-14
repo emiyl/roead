@@ -5,8 +5,8 @@ use std::{
 };
 
 use scc::{
-    hash_map::{Entry, VacantEntry},
     HashMap,
+    hash_map::{Entry, VacantEntry},
 };
 
 use super::*;

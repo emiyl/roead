@@ -1,11 +1,11 @@
 use std::io::{Read, Seek, SeekFrom};
 
-use binrw::{binrw, BinRead, VecArgs};
+use binrw::{BinRead, VecArgs, binrw};
 
 use super::*;
 use crate::{
-    util::{align, u24, SeekShim},
     Endian, Error, Result,
+    util::{SeekShim, align, u24},
 };
 
 impl Byml {
@@ -98,7 +98,7 @@ struct ResHeader {
 #[derive(Debug, Default)]
 struct StringTableParser {
     offset: u32,
-    size:   u32,
+    size: u32,
 }
 
 impl StringTableParser {
