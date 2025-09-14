@@ -25,7 +25,7 @@ pub struct BymlNodeReader<'a> {
 impl<'a> BymlNodeReader<'a> {
     /// Create a new node reader for the root node
     pub(crate) fn new_root(reader: &'a BymlReader<'a>, offset: u32) -> Self {
-        // For root node, we need to read the node type and value from the offset
+        // For root node, we need to read the node type and handle containers specially
         let data = reader.data();
         let offset_usize = offset as usize;
 
@@ -46,12 +46,22 @@ impl<'a> BymlNodeReader<'a> {
             Err(_) => NodeType::Null,
         };
 
-        // For root node, the value starts right after the type byte
-        let mut value_data = [0u8; 8];
-        let value_start = offset_usize + 1;
-        if value_start + 8 <= data.len() {
-            value_data.copy_from_slice(&data[value_start..value_start + 8]);
-        }
+        // For root container nodes, the offset points directly to the container
+        // The value_data is not meaningful for root containers
+        let value_data = if matches!(node_type, NodeType::Array | NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap) {
+            // For container root nodes, store the container offset in value_data  
+            let mut data = [0u8; 8];
+            data[0..4].copy_from_slice(&offset.to_le_bytes());
+            data
+        } else {
+            // For primitive root nodes, read the value normally
+            let mut value_data = [0u8; 8];
+            let value_start = offset_usize + 1;
+            if value_start + 8 <= data.len() {
+                value_data.copy_from_slice(&data[value_start..value_start + 8]);
+            }
+            value_data
+        };
 
         Self {
             reader,
@@ -549,6 +559,7 @@ impl<'a> BymlMapReader<'a> {
 
         // Read node type (should be Map = 0xc1) and length (u24)
         let _node_type = data[offset_usize];
+        
         let len = match reader.endian_internal() {
             Endian::Little => u32::from_le_bytes([
                 data[offset_usize + 1],
@@ -642,7 +653,8 @@ impl<'a> BymlMapReader<'a> {
                 data[entry_offset + 2],
             ]),
         };
-        self.reader.get_string(string_index)
+        
+        self.reader.get_hash_key(string_index)
     }
 
     /// Get the value at a given index

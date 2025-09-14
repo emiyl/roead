@@ -433,30 +433,15 @@ mod tests {
             }
         }
         
-        // Debug reader API creation
+        // Test reader API
         let reader = BymlReader::new(&data).unwrap();
-        println!("Reader endian: {:?}", reader.endian());
-        println!("Reader header: version={}, root_offset=0x{:x}", 
-                 reader.version(), reader.root_offset());
-        
         let root = reader.root();
-        println!("Root node type: {:?}", root.node_type());
-        
-        // Debug the raw root node data
-        let root_offset = reader.root_offset() as usize;
-        let root_bytes = &data[root_offset..root_offset+16];
-        println!("Raw root bytes: {:02x?}", root_bytes);
         
         if let Ok(reader_map) = root.as_map() {
             println!("Reader API map reports {} entries", reader_map.len());
             
-            // Debug the raw map structure
-            let map_offset = reader.root_offset() as usize;
-            let map_header = &data[map_offset..map_offset+8];
-            println!("Raw map header: {:02x?}", map_header);
-            
             // Try to read first few keys manually
-            for i in 0..std::cmp::min(2, reader_map.len()) {
+            for i in 0..std::cmp::min(5, reader_map.len()) {
                 match reader_map.get_key_at_index(i) {
                     Ok(key) => println!("  Key {}: '{}'", i, key),
                     Err(e) => {
