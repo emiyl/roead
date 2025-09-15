@@ -58,6 +58,7 @@
 //! # Ok(())
 //! # }
 //! ```
+pub mod reader;
 #[cfg(feature = "yaml")]
 mod text;
 mod writer;
@@ -71,7 +72,7 @@ mod parser;
 #[binrw::binrw]
 #[brw(repr = u8)]
 #[repr(u8)]
-enum NodeType {
+pub enum NodeType {
     HashMap = 0x20,
     ValueHashMap = 0x21,
     String = 0xa0,
@@ -88,6 +89,32 @@ enum NodeType {
     U64 = 0xd5,
     Double = 0xd6,
     Null = 0xff,
+}
+
+impl TryFrom<u8> for NodeType {
+    type Error = ();
+
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
+        match value {
+            0x20 => Ok(NodeType::HashMap),
+            0x21 => Ok(NodeType::ValueHashMap),
+            0xa0 => Ok(NodeType::String),
+            0xa1 => Ok(NodeType::Binary),
+            0xa2 => Ok(NodeType::File),
+            0xc0 => Ok(NodeType::Array),
+            0xc1 => Ok(NodeType::Map),
+            0xc2 => Ok(NodeType::StringTable),
+            0xd0 => Ok(NodeType::Bool),
+            0xd1 => Ok(NodeType::I32),
+            0xd2 => Ok(NodeType::Float),
+            0xd3 => Ok(NodeType::U32),
+            0xd4 => Ok(NodeType::I64),
+            0xd5 => Ok(NodeType::U64),
+            0xd6 => Ok(NodeType::Double),
+            0xff => Ok(NodeType::Null),
+            _ => Err(()),
+        }
+    }
 }
 
 #[inline(always)]
@@ -1084,6 +1111,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_reader_basic_smoke_test() {
+        // Test that reader API is accessible
+        let invalid_data = b"INVALID";
+        assert!(reader::BymlReader::new(invalid_data).is_err());
+    }
+
+    #[test]
     fn accessors() {
         let mut actorinfo =
             Byml::from_binary(std::fs::read("test/byml/ActorInfo.product.byml").unwrap()).unwrap();
@@ -1110,3 +1144,9 @@ mod tests {
         assert_eq!(arr.as_array().unwrap().len(), 2);
     }
 }
+
+// Re-export reader API
+pub use reader::{
+    BymlArrayReader, BymlHashMapReader, BymlMapReader, BymlNodeReader, BymlReader, ReaderError,
+    ReaderResult,
+};

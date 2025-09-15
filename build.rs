@@ -1,9 +1,9 @@
-use std::{env, path::Path};
-
-use rustc_version::{version_meta, Channel};
+use rustc_version::{Channel, version_meta};
 
 #[cfg(feature = "yaz0")]
 fn build_zlib() {
+    use std::{env, path::Path};
+
     let target = env::var("TARGET").unwrap();
     let mut cmake = std::process::Command::new("cmake");
     cmake.current_dir("lib/zlib-ng");
@@ -28,6 +28,8 @@ fn build_zlib() {
 
 #[cfg(feature = "yaz0")]
 fn build_yaz0() {
+    use std::{env, path::Path};
+
     build_zlib();
     let mut builder = cxx_build::bridge("src/yaz0.rs");
     builder

@@ -21,14 +21,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd)]
 pub struct FixedSafeString<const N: usize> {
     pub(crate) data: [u8; N],
-    pub(crate) len:  usize,
+    pub(crate) len: usize,
 }
 
 impl<const N: usize> Default for FixedSafeString<N> {
     fn default() -> Self {
         Self {
             data: [0; N],
-            len:  0,
+            len: 0,
         }
     }
 }

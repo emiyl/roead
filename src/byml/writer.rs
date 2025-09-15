@@ -9,8 +9,8 @@ use rustc_hash::FxHashMap;
 
 use super::*;
 use crate::{
-    util::{align, u24},
     Endian, Error, Result,
+    util::{align, u24},
 };
 
 impl Byml {
@@ -92,7 +92,7 @@ impl Byml {
 }
 
 struct NonInlineNode<'a> {
-    data:   &'a Byml,
+    data: &'a Byml,
     offset: u32,
 }
 
@@ -257,12 +257,10 @@ impl<'a, W: Write + Seek> WriteContext<'a, W> {
             Byml::I64(i) => self.write(*i),
             Byml::U64(u) => self.write(*u),
             Byml::Double(d) => self.write(d.to_bits()),
-            _ => {
-                BinResult::Err(binrw::Error::Custom {
-                    pos: self.writer.stream_position()?,
-                    err: Box::new("Invalid value node type"),
-                })
-            }
+            _ => BinResult::Err(binrw::Error::Custom {
+                pos: self.writer.stream_position()?,
+                err: Box::new("Invalid value node type"),
+            }),
         }
     }
 
@@ -277,7 +275,7 @@ impl<'a, W: Write + Seek> WriteContext<'a, W> {
         ) -> binrw::BinResult<()> {
             if item.is_non_inline_type() {
                 non_inline_nodes.push(NonInlineNode {
-                    data:   item,
+                    data: item,
                     offset: ctx.writer.stream_position()? as u32,
                 });
                 ctx.write(0u32)?;
