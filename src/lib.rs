@@ -102,6 +102,8 @@ pub enum Error {
     Yaz0Error(#[from] cxx::Exception),
     #[error("{0}")]
     Any(String),
+    #[error("AAMP error: {0}")]
+    Aamp(String),
 }
 
 #[cfg_attr(feature = "sarc", binrw::binread, brw(repr = u16))]

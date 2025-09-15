@@ -34,6 +34,7 @@
 #[cfg(feature = "aamp-names")]
 mod names;
 mod parser;
+pub mod reader;
 #[cfg(feature = "yaml")]
 mod text;
 mod writer;
@@ -100,7 +101,7 @@ fn check_hasher() {
     assert_eq!(HASHED, HASH);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[binrw::binrw]
 #[repr(u8)]
 #[brw(repr = u8)]
@@ -165,7 +166,7 @@ struct ResParameterObj {
     param_count: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[binrw]
 #[brw(little)]
 struct ResParameterList {
@@ -1807,6 +1808,9 @@ macro_rules! lists {
     };
 }
 pub use lists;
+
+// Re-export reader APIs
+pub use reader::{ParameterIOReader, ParameterListReader, ParameterObjectReader, ParameterReader};
 
 #[test]
 fn macros() {
