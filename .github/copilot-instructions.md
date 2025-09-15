@@ -81,7 +81,7 @@ cargo fmt
 ## Code Style & Conventions
 
 ### Rust Formatting
-Uses custom `rustfmt.toml` with:
+Uses custom `rustfmt.toml` (requires nightly toolchain) with:
 - Unix newlines
 - Field init shorthand
 - Try operator shorthand  
