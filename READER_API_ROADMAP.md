@@ -21,6 +21,7 @@ The abandoned `new-readers` branch provides valuable insights, showing a partial
 3. **Consistency**: New reader APIs should feel familiar to users of the existing APIs
 4. **Flexibility**: Allow gradual migration and mixed usage patterns
 5. **Feature Parity**: Support all existing functionality through appropriate API design
+6. **YAML Serialization**: Support serializing to YAML directly from reader API, without first parsing owned structures
 
 ## Proposed Architecture
 
@@ -138,6 +139,8 @@ impl<'a> BymlNodeReader<'a> {
     // Indexing support (similar to existing API)
     pub fn get<I: BymlIndex>(&self, index: I) -> Option<BymlNodeReader<'a>>;
     pub fn try_get<I: BymlIndex>(&self, index: I) -> Result<Option<BymlNodeReader<'a>>>;
+
+    pub fn to_text(&self) -> Result<String>;
 }
 ```
 
@@ -227,6 +230,8 @@ impl<'a> ParameterIOReader<'a> {
     // Convenience methods for root access
     pub fn list(&self, name: impl Into<Name>) -> Option<ParameterListReader<'a>>;
     pub fn object(&self, name: impl Into<Name>) -> Option<ParameterObjectReader<'a>>;
+
+    pub fn to_text(&self) -> Result<String>;
 }
 ```
 
@@ -331,7 +336,7 @@ impl Byml {
 ### Memory Layout Assumptions
 
 The reader APIs assume standard Nintendo binary format layout:
-- Little-endian for Switch, big-endian for Wii U
+- Little-endian for Switch, big-endian for Wii U (BYML only; AAMP is always little-endian)
 - 4-byte alignment for most structures  
 - String tables with null-terminated UTF-8 strings
 - Relative offsets calculated from specific base addresses
@@ -412,6 +417,7 @@ mod tests {
 ### Integration Tests
 
 - Test all existing BYML/AAMP files in test suite with new reader APIs
+- Test YAML serialization against existing YAML files in the test suite
 - Verify performance improvements in benchmark suite
 - Test error handling with malformed binary data
 - Validate thread safety with concurrent access tests
@@ -484,11 +490,13 @@ Create example programs showing:
 - [ ] Iterator support
 - [ ] Error handling improvements
 - [ ] Performance optimization
+- [ ] Add YAML serialization
 
 ### Phase 3: AAMP Reader Enhancement (2-3 weeks)
 - [ ] Port and enhance new-readers branch work
 - [ ] Implement missing functionality
 - [ ] Zero-copy parameter access
+- [ ] Add YAML serialization
 - [ ] Complete test coverage
 
 ### Phase 4: Integration and Documentation (1-2 weeks)
