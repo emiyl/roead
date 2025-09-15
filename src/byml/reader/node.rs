@@ -163,6 +163,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -207,6 +210,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -270,6 +276,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -337,6 +346,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 4 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -436,6 +448,73 @@ impl<'a> BymlNodeReader<'a> {
                 BymlHashMapReader::new(self.reader, offset, self.node_type)
             }
             _ => Err(ReaderError::InvalidNodeType(self.node_type as u8)),
+        }
+    }
+    
+    /// Convert this reader node to an owned Byml (allocates)
+    /// 
+    /// This method converts the zero-copy reader representation to the owned,
+    /// mutable representation used by the standard BYML API.
+    #[cfg(feature = "byml")]
+    pub fn to_owned(&self) -> ReaderResult<crate::byml::Byml> {
+        use crate::byml::Byml;
+        use rustc_hash::FxHashMap;
+        
+        match self.node_type {
+            NodeType::Null => Ok(Byml::Null),
+            NodeType::Bool => Ok(Byml::Bool(self.as_bool()?)),
+            NodeType::I32 => Ok(Byml::I32(self.as_i32()?)),
+            NodeType::U32 => Ok(Byml::U32(self.as_u32()?)),
+            NodeType::I64 => Ok(Byml::I64(self.as_i64()?)),
+            NodeType::U64 => Ok(Byml::U64(self.as_u64()?)),
+            NodeType::Float => Ok(Byml::Float(self.as_f32()?)),
+            NodeType::Double => Ok(Byml::Double(self.as_f64()?)),
+            NodeType::String => Ok(Byml::String(self.as_str()?.to_string().into())),
+            NodeType::Binary => Ok(Byml::BinaryData(self.as_binary()?.to_vec())),
+            NodeType::File => Ok(Byml::FileData(self.as_binary()?.to_vec())),
+            NodeType::Array => {
+                let array = self.as_array()?;
+                let mut vec = Vec::with_capacity(array.len());
+                for i in 0..array.len() {
+                    if let Some(element) = array.get(i) {
+                        vec.push(element.to_owned()?);
+                    }
+                }
+                Ok(Byml::Array(vec))
+            }
+            NodeType::Map => {
+                let map = self.as_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in map.iter() {
+                    let (key, value) = entry_result?;
+                    result.insert(key.to_string().into(), value.to_owned()?);
+                }
+                Ok(Byml::Map(result))
+            }
+            NodeType::HashMap => {
+                let hash_map = self.as_hash_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    result.insert(key, value.to_owned()?);
+                }
+                Ok(Byml::HashMap(result))
+            }
+            NodeType::ValueHashMap => {
+                let value_hash_map = self.as_hash_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in value_hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    // ValueHashMap needs a (Byml, u32) tuple as value
+                    // For now, use 0 as the second value since we don't have that info in the reader
+                    result.insert(key, (value.to_owned()?, 0));
+                }
+                Ok(Byml::ValueHashMap(result))
+            }
+            NodeType::StringTable => {
+                // StringTable is not a regular node type that should be converted
+                Err(ReaderError::InvalidNodeType(self.node_type as u8))
+            }
         }
     }
 }
@@ -544,7 +623,6 @@ impl<'a> BymlArrayReader<'a> {
 pub struct BymlMapReader<'a> {
     reader: &'a BymlReader<'a>,
     keys_offset: u32,
-    values_offset: u32,
     len: u32,
 }
 
@@ -578,13 +656,9 @@ impl<'a> BymlMapReader<'a> {
         // Keys start immediately after the header
         let keys_offset = offset + 4;
 
-        // Values start after keys (each key entry is 8 bytes: 3 bytes string index + 1 byte node type + 4 bytes value)
-        let values_offset = keys_offset;
-
         Ok(BymlMapReader {
             reader,
             keys_offset,
-            values_offset,
             len,
         })
     }
@@ -654,7 +728,7 @@ impl<'a> BymlMapReader<'a> {
             ]),
         };
         
-        self.reader.get_hash_key(string_index)
+        self.reader.get_string(string_index)
     }
 
     /// Get the value at a given index
@@ -819,5 +893,95 @@ impl<'a> BymlHashMapReader<'a> {
     /// Check if the hash map contains a key
     pub fn contains_key(&self, key: u32) -> bool {
         self.get(key).is_some()
+    }
+    
+    /// Iterate over all entries (expensive - O(n) scan)
+    /// Returns an iterator that yields (hash_key, node) pairs
+    pub fn iter(&'a self) -> BymlHashMapIterator<'a> {
+        BymlHashMapIterator {
+            reader: self,
+            index: 0,
+        }
+    }
+}
+
+/// Iterator over BYML hash map entries
+pub struct BymlHashMapIterator<'a> {
+    reader: &'a BymlHashMapReader<'a>,
+    index: usize,
+}
+
+impl<'a> Iterator for BymlHashMapIterator<'a> {
+    type Item = ReaderResult<(u32, BymlNodeReader<'a>)>;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.reader.len() {
+            return None;
+        }
+        
+        let data = self.reader.reader.data();
+        let endian = self.reader.reader.endian_internal();
+        let offset = self.reader.offset as usize;
+        
+        let entries_start = offset + 4;
+        let entry_offset = entries_start + self.index * 8;
+        
+        if entry_offset + 8 > data.len() {
+            self.index = self.reader.len(); // Prevent further iteration
+            return Some(Err(ReaderError::UnexpectedEnd(entry_offset as u32)));
+        }
+        
+        // Read hash key
+        let hash_key = match endian {
+            Endian::Little => u32::from_le_bytes([
+                data[entry_offset],
+                data[entry_offset + 1], 
+                data[entry_offset + 2],
+                data[entry_offset + 3],
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                data[entry_offset],
+                data[entry_offset + 1],
+                data[entry_offset + 2],
+                data[entry_offset + 3],
+            ]),
+        };
+        
+        // Read value data
+        let mut value_data = [0u8; 8];
+        value_data[0..4].copy_from_slice(&data[entry_offset + 4..entry_offset + 8]);
+        
+        // Get node type
+        let types_start = entries_start + 8 * self.reader.len as usize;
+        let type_offset = types_start as usize + self.index;
+        
+        if type_offset >= data.len() {
+            self.index = self.reader.len(); // Prevent further iteration
+            return Some(Err(ReaderError::UnexpectedEnd(type_offset as u32)));
+        }
+        
+        let node_type_byte = data[type_offset];
+        let node_type = match NodeType::try_from(node_type_byte) {
+            Ok(nt) => nt,
+            Err(_) => {
+                self.index += 1;
+                return Some(Err(ReaderError::InvalidNodeType(node_type_byte)));
+            }
+        };
+        
+        let node = BymlNodeReader::new(
+            self.reader.reader,
+            node_type,
+            value_data,
+            entry_offset as u32 + 4,
+        );
+        
+        self.index += 1;
+        Some(Ok((hash_key, node)))
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.reader.len() - self.index;
+        (remaining, Some(remaining))
     }
 }
