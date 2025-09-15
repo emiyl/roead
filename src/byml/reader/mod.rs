@@ -427,6 +427,7 @@ mod tests {
         let owned = Byml::from_binary(&data).unwrap();
         if let Ok(map) = owned.as_map() {
             println!("Owned API map has {} entries", map.len());
+            use crate::byml::BymlIndex;
             for (i, (key, _value)) in map.iter().enumerate() {
                 if i >= 5 { break; }
                 println!("  Key {}: '{}'", i, key);
@@ -451,5 +452,199 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_usen_specific_data_validation() {
+        // Test specific data points from USen.byml to verify correct parsing
+        // This test validates against known data from the USen.yml file
+        
+        let data = std::fs::read("test/byml/USen.byml").unwrap();
+        let reader = BymlReader::new(&data).unwrap();
+        let root = reader.root();
+        
+        // USen.byml should be a hash map (marked with !h tag in YAML)
+        let hash_map = root.as_hash_map().expect("USen.byml should be a hash map");
+        
+        println!("USen.byml HashMap has {} entries", hash_map.len());
+        
+        // Test specific entries from the YAML file to validate correct parsing
+        // Entry: 1264494 with Hash: 0xE8FCC5F5 and SampleNum: 0x12AF0, WaveDataOffset: 0x80
+        if let Some(entry_1264494) = hash_map.get(1264494) {
+            let entry_map = entry_1264494.as_map().expect("Entry should be a map");
+            
+            // Check Hash field
+            if let Some(hash_node) = entry_map.get("Hash") {
+                let hash_value = hash_node.as_u32().expect("Hash should be U32");
+                assert_eq!(hash_value, 0xE8FCC5F5, "Hash value mismatch for entry 1264494");
+                println!("  ✓ Hash for 1264494: 0x{:X}", hash_value);
+            }
+            
+            // Check ChannelInfo array
+            if let Some(channel_info_node) = entry_map.get("ChannelInfo") {
+                let channel_info_array = channel_info_node.as_array().expect("ChannelInfo should be array");
+                assert_eq!(channel_info_array.len(), 1, "Should have 1 channel info entry");
+                
+                if let Some(channel_0) = channel_info_array.get(0) {
+                    let channel_map = channel_0.as_map().expect("Channel info should be map");
+                    
+                    // Check SampleNum
+                    if let Some(sample_num_node) = channel_map.get("SampleNum") {
+                        let sample_num = sample_num_node.as_u32().expect("SampleNum should be U32");
+                        assert_eq!(sample_num, 0x12AF0, "SampleNum mismatch for entry 1264494");
+                        println!("    ✓ SampleNum: 0x{:X}", sample_num);
+                    }
+                    
+                    // Check WaveDataOffset
+                    if let Some(wave_offset_node) = channel_map.get("WaveDataOffset") {
+                        let wave_offset = wave_offset_node.as_u32().expect("WaveDataOffset should be U32");
+                        assert_eq!(wave_offset, 0x80, "WaveDataOffset mismatch for entry 1264494");
+                        println!("    ✓ WaveDataOffset: 0x{:X}", wave_offset);
+                    }
+                }
+            }
+        } else {
+            panic!("Entry 1264494 not found in hash map");
+        }
+        
+        // Test entry with binary data: 7458797
+        if let Some(entry_7458797) = hash_map.get(7458797) {
+            let entry_map = entry_7458797.as_map().expect("Entry should be a map");
+            
+            // Check Hash field
+            if let Some(hash_node) = entry_map.get("Hash") {
+                let hash_value = hash_node.as_u32().expect("Hash should be U32");
+                assert_eq!(hash_value, 0x4EEEBF1E, "Hash value mismatch for entry 7458797");
+                println!("  ✓ Hash for 7458797: 0x{:X}", hash_value);
+            }
+            
+            // Check ChannelInfo with binary data
+            if let Some(channel_info_node) = entry_map.get("ChannelInfo") {
+                let channel_info_array = channel_info_node.as_array().expect("ChannelInfo should be array");
+                
+                if let Some(channel_0) = channel_info_array.get(0) {
+                    let channel_map = channel_0.as_map().expect("Channel info should be map");
+                    
+                    // Check AdpcmContext binary data
+                    if let Some(adpcm_context_node) = channel_map.get("AdpcmContext") {
+                        let adpcm_context = adpcm_context_node.as_binary().expect("AdpcmContext should be binary");
+                        // Should be base64 decoded from "AAAAAAAA" which is 6 bytes of zeros
+                        assert_eq!(adpcm_context.len(), 6, "AdpcmContext length mismatch");
+                        assert_eq!(adpcm_context, &[0, 0, 0, 0, 0, 0], "AdpcmContext data mismatch");
+                        println!("    ✓ AdpcmContext: {} bytes of binary data", adpcm_context.len());
+                    }
+                    
+                    // Check AdpcmParameter binary data
+                    if let Some(adpcm_param_node) = channel_map.get("AdpcmParameter") {
+                        let adpcm_param = adpcm_param_node.as_binary().expect("AdpcmParameter should be binary");
+                        // Should be base64 decoded data (32 bytes)
+                        assert_eq!(adpcm_param.len(), 32, "AdpcmParameter length mismatch");
+                        println!("    ✓ AdpcmParameter: {} bytes of binary data", adpcm_param.len());
+                    }
+                    
+                    // Check SampleNum
+                    if let Some(sample_num_node) = channel_map.get("SampleNum") {
+                        let sample_num = sample_num_node.as_u32().expect("SampleNum should be U32");
+                        assert_eq!(sample_num, 0xADFC, "SampleNum mismatch for entry 7458797");
+                        println!("    ✓ SampleNum: 0x{:X}", sample_num);
+                    }
+                }
+            }
+        } else {
+            panic!("Entry 7458797 not found in hash map");
+        }
+        
+        // Test entry with multiple channels: 4253374
+        if let Some(entry_4253374) = hash_map.get(4253374) {
+            let entry_map = entry_4253374.as_map().expect("Entry should be a map");
+            
+            // Check Hash field
+            if let Some(hash_node) = entry_map.get("Hash") {
+                let hash_value = hash_node.as_u32().expect("Hash should be U32");
+                assert_eq!(hash_value, 0xD548098A, "Hash value mismatch for entry 4253374");
+                println!("  ✓ Hash for 4253374: 0x{:X}", hash_value);
+            }
+            
+            // Check ChannelInfo with 2 channels
+            if let Some(channel_info_node) = entry_map.get("ChannelInfo") {
+                let channel_info_array = channel_info_node.as_array().expect("ChannelInfo should be array");
+                assert_eq!(channel_info_array.len(), 2, "Should have 2 channel info entries");
+                
+                // Test first channel
+                if let Some(channel_0) = channel_info_array.get(0) {
+                    let channel_map = channel_0.as_map().expect("Channel info should be map");
+                    
+                    if let Some(sample_num_node) = channel_map.get("SampleNum") {
+                        let sample_num = sample_num_node.as_u32().expect("SampleNum should be U32");
+                        assert_eq!(sample_num, 0x558A5, "SampleNum mismatch for entry 4253374 channel 0");
+                        println!("    ✓ Channel 0 SampleNum: 0x{:X}", sample_num);
+                    }
+                    
+                    if let Some(wave_offset_node) = channel_map.get("WaveDataOffset") {
+                        let wave_offset = wave_offset_node.as_u32().expect("WaveDataOffset should be U32");
+                        assert_eq!(wave_offset, 0xC0, "WaveDataOffset mismatch for entry 4253374 channel 0");
+                        println!("    ✓ Channel 0 WaveDataOffset: 0x{:X}", wave_offset);
+                    }
+                }
+                
+                // Test second channel
+                if let Some(channel_1) = channel_info_array.get(1) {
+                    let channel_map = channel_1.as_map().expect("Channel info should be map");
+                    
+                    if let Some(sample_num_node) = channel_map.get("SampleNum") {
+                        let sample_num = sample_num_node.as_u32().expect("SampleNum should be U32");
+                        assert_eq!(sample_num, 0x558A5, "SampleNum mismatch for entry 4253374 channel 1");
+                        println!("    ✓ Channel 1 SampleNum: 0x{:X}", sample_num);
+                    }
+                    
+                    if let Some(wave_offset_node) = channel_map.get("WaveDataOffset") {
+                        let wave_offset = wave_offset_node.as_u32().expect("WaveDataOffset should be U32");
+                        assert_eq!(wave_offset, 0xB900, "WaveDataOffset mismatch for entry 4253374 channel 1");
+                        println!("    ✓ Channel 1 WaveDataOffset: 0x{:X}", wave_offset);
+                    }
+                }
+            }
+        } else {
+            panic!("Entry 4253374 not found in hash map");
+        }
+        
+        // Test a few more random entries to ensure comprehensive validation
+        
+        // Entry 11135534 - simple entry
+        if let Some(entry_11135534) = hash_map.get(11135534) {
+            let entry_map = entry_11135534.as_map().expect("Entry should be a map");
+            
+            if let Some(hash_node) = entry_map.get("Hash") {
+                let hash_value = hash_node.as_u32().expect("Hash should be U32");
+                assert_eq!(hash_value, 0x5792352D, "Hash value mismatch for entry 11135534");
+                println!("  ✓ Hash for 11135534: 0x{:X}", hash_value);
+            }
+        }
+        
+        // Entry 50976467 - another simple entry
+        if let Some(entry_50976467) = hash_map.get(50976467) {
+            let entry_map = entry_50976467.as_map().expect("Entry should be a map");
+            
+            if let Some(hash_node) = entry_map.get("Hash") {
+                let hash_value = hash_node.as_u32().expect("Hash should be U32");
+                assert_eq!(hash_value, 0x8FFB7887, "Hash value mismatch for entry 50976467");
+                println!("  ✓ Hash for 50976467: 0x{:X}", hash_value);
+            }
+            
+            if let Some(channel_info_node) = entry_map.get("ChannelInfo") {
+                let channel_info_array = channel_info_node.as_array().expect("ChannelInfo should be array");
+                if let Some(channel_0) = channel_info_array.get(0) {
+                    let channel_map = channel_0.as_map().expect("Channel info should be map");
+                    
+                    if let Some(sample_num_node) = channel_map.get("SampleNum") {
+                        let sample_num = sample_num_node.as_u32().expect("SampleNum should be U32");
+                        assert_eq!(sample_num, 0x89AA, "SampleNum mismatch for entry 50976467");
+                        println!("    ✓ SampleNum for 50976467: 0x{:X}", sample_num);
+                    }
+                }
+            }
+        }
+        
+        println!("✅ All USen.byml data validation tests passed!");
     }
 }

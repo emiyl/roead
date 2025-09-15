@@ -710,20 +710,29 @@ impl<'a> BymlHashMapReader<'a> {
             return Err(ReaderError::UnexpectedEnd(offset));
         }
 
-        // Read hash map length
-        let len = u32::from_le_bytes([
-            data[offset_usize],
-            data[offset_usize + 1],
-            data[offset_usize + 2],
-            0,
-        ]);
+        // Read hash map length (NodeType + u24)
+        // First byte is NodeType, next 3 bytes are length as u24
+        let len_bytes = match reader.endian_internal() {
+            Endian::Little => u32::from_le_bytes([
+                data[offset_usize + 1],
+                data[offset_usize + 2],
+                data[offset_usize + 3],
+                0,
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                0,
+                data[offset_usize + 1],
+                data[offset_usize + 2],
+                data[offset_usize + 3],
+            ]),
+        };
 
         let is_value_hash_map = matches!(node_type, NodeType::ValueHashMap);
 
         Ok(BymlHashMapReader {
             reader,
             offset,
-            len,
+            len: len_bytes,
             is_value_hash_map,
         })
     }
@@ -739,9 +748,66 @@ impl<'a> BymlHashMapReader<'a> {
     }
 
     /// Get a value by hash key
-    pub fn get(&self, _key: u32) -> Option<BymlNodeReader<'a>> {
-        // Implementation would need binary search through hash entries
-        // This is a simplified version
+    pub fn get(&self, key: u32) -> Option<BymlNodeReader<'a>> {
+        let data = self.reader.data();
+        let endian = self.reader.endian_internal();
+        let offset = self.offset as usize;
+        
+        // HashMap structure:
+        // offset + 0: NodeType (1 byte) + length (3 bytes) - we already parsed this
+        // offset + 4: entries (8 bytes each: hash(4) + value_offset(4))
+        // offset + 4 + 8*len: node types (1 byte each)
+        
+        let entries_start = offset + 4;
+        let types_start = entries_start + 8 * self.len as usize;
+        
+        // Linear search through entries (could be optimized with binary search if sorted)
+        for i in 0..self.len {
+            let entry_offset = entries_start + (i as usize) * 8;
+            
+            if entry_offset + 8 > data.len() {
+                return None;
+            }
+            
+            // Read hash key
+            let entry_hash = match endian {
+                Endian::Little => u32::from_le_bytes([
+                    data[entry_offset],
+                    data[entry_offset + 1],
+                    data[entry_offset + 2],
+                    data[entry_offset + 3],
+                ]),
+                Endian::Big => u32::from_be_bytes([
+                    data[entry_offset],
+                    data[entry_offset + 1],
+                    data[entry_offset + 2],
+                    data[entry_offset + 3],
+                ]),
+            };
+            
+            if entry_hash == key {
+                // Found the key, read the value (4 bytes starting at entry_offset + 4)
+                let mut value_data = [0u8; 8];
+                if entry_offset + 8 <= data.len() {
+                    value_data[0..4].copy_from_slice(&data[entry_offset + 4..entry_offset + 8]);
+                }
+                let type_offset = types_start + i as usize;
+                
+                if type_offset >= data.len() {
+                    return None;
+                }
+                
+                let node_type = data[type_offset];
+                
+                return Some(BymlNodeReader {
+                    reader: self.reader,
+                    node_type: NodeType::try_from(node_type).ok()?,
+                    value_data,
+                    offset: entry_offset as u32 + 4,
+                });
+            }
+        }
+        
         None
     }
 
