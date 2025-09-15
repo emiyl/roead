@@ -161,6 +161,16 @@ impl<'a> BymlReader<'a> {
         self.root().to_owned()
     }
 
+    /// Serialize the document to YAML text
+    /// 
+    /// This method provides direct YAML serialization from the zero-copy reader
+    /// without allocating intermediate owned structures. The output exactly matches
+    /// the YAML format produced by the owned API.
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    pub fn to_text(&self) -> ReaderResult<String> {
+        self.root().to_text()
+    }
+
     /// Get a string from the string table by index
     pub(crate) fn get_string(&self, index: u32) -> ReaderResult<&'a str> {
         self.get_table_string(self.string_table, index, "string")

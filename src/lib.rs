@@ -56,7 +56,7 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 #[cfg(feature = "aamp")]
 pub mod aamp;
-#[cfg(feature = "byml")]
+#[cfg(any(feature = "byml", feature = "byml-read"))]
 pub mod byml;
 #[cfg(feature = "sarc")]
 pub mod sarc;
