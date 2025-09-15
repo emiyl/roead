@@ -58,6 +58,7 @@
 //! # Ok(())
 //! # }
 //! ```
+#[cfg(feature = "byml-read")]
 pub mod reader;
 #[cfg(feature = "yaml")]
 mod text;
@@ -1146,6 +1147,7 @@ mod tests {
 }
 
 // Re-export reader API
+#[cfg(feature = "byml-read")]
 pub use reader::{
     BymlArrayReader, BymlHashMapReader, BymlMapReader, BymlNodeReader, BymlReader, ReaderError,
     ReaderResult,

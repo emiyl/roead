@@ -5,6 +5,14 @@
 use super::{BymlReader, ReaderError, ReaderResult};
 use crate::{Endian, byml::NodeType};
 
+#[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+use {
+    crate::yaml::format_hex,
+    base64::Engine,
+    lexical_core,
+    lexical,
+};
+
 /// Zero-copy reader for individual BYML nodes
 ///
 /// This struct provides access to BYML node data without copying. For primitive
@@ -163,6 +171,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -207,6 +218,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -270,6 +284,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 8 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -337,6 +354,9 @@ impl<'a> BymlNodeReader<'a> {
                 } as usize;
 
                 let data = self.reader.data();
+                if offset >= data.len() {
+                    return Err(ReaderError::InvalidOffset(offset as u32));
+                }
                 if offset + 4 > data.len() {
                     return Err(ReaderError::UnexpectedEnd(offset as u32));
                 }
@@ -437,6 +457,445 @@ impl<'a> BymlNodeReader<'a> {
             }
             _ => Err(ReaderError::InvalidNodeType(self.node_type as u8)),
         }
+    }
+    
+    /// Convert this reader node to an owned Byml (allocates)
+    /// 
+    /// This method converts the zero-copy reader representation to the owned,
+    /// mutable representation used by the standard BYML API.
+    #[cfg(feature = "byml")]
+    pub fn to_owned(&self) -> ReaderResult<crate::byml::Byml> {
+        use crate::byml::Byml;
+        use rustc_hash::FxHashMap;
+        
+        match self.node_type {
+            NodeType::Null => Ok(Byml::Null),
+            NodeType::Bool => Ok(Byml::Bool(self.as_bool()?)),
+            NodeType::I32 => Ok(Byml::I32(self.as_i32()?)),
+            NodeType::U32 => Ok(Byml::U32(self.as_u32()?)),
+            NodeType::I64 => Ok(Byml::I64(self.as_i64()?)),
+            NodeType::U64 => Ok(Byml::U64(self.as_u64()?)),
+            NodeType::Float => Ok(Byml::Float(self.as_f32()?)),
+            NodeType::Double => Ok(Byml::Double(self.as_f64()?)),
+            NodeType::String => Ok(Byml::String(self.as_str()?.to_string().into())),
+            NodeType::Binary => Ok(Byml::BinaryData(self.as_binary()?.to_vec())),
+            NodeType::File => Ok(Byml::FileData(self.as_binary()?.to_vec())),
+            NodeType::Array => {
+                let array = self.as_array()?;
+                let mut vec = Vec::with_capacity(array.len());
+                for i in 0..array.len() {
+                    if let Some(element) = array.get(i) {
+                        vec.push(element.to_owned()?);
+                    }
+                }
+                Ok(Byml::Array(vec))
+            }
+            NodeType::Map => {
+                let map = self.as_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in map.iter() {
+                    let (key, value) = entry_result?;
+                    result.insert(key.to_string().into(), value.to_owned()?);
+                }
+                Ok(Byml::Map(result))
+            }
+            NodeType::HashMap => {
+                let hash_map = self.as_hash_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    result.insert(key, value.to_owned()?);
+                }
+                Ok(Byml::HashMap(result))
+            }
+            NodeType::ValueHashMap => {
+                let value_hash_map = self.as_hash_map()?;
+                let mut result = FxHashMap::default();
+                for entry_result in value_hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    // ValueHashMap needs a (Byml, u32) tuple as value
+                    // For now, use 0 as the second value since we don't have that info in the reader
+                    result.insert(key, (value.to_owned()?, 0));
+                }
+                Ok(Byml::ValueHashMap(result))
+            }
+            NodeType::StringTable => {
+                // StringTable is not a regular node type that should be converted
+                Err(ReaderError::InvalidNodeType(self.node_type as u8))
+            }
+        }
+    }
+
+    /// Serialize this node to YAML text
+    /// 
+    /// This method provides direct YAML serialization from the zero-copy reader
+    /// without allocating intermediate owned structures. The output exactly matches
+    /// the YAML format produced by the owned API.
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    pub fn to_text(&self) -> ReaderResult<String> {
+        
+        // For non-container types, we can't serialize to YAML directly
+        // Only container types (Array, Map, HashMap, ValueHashMap) and Null can be serialized
+        match self.node_type {
+            NodeType::Array | NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap => {
+                let mut tree = ryml::Tree::default();
+                tree.reserve(20000);
+                
+                // Set up the root node based on the type
+                let mut root = tree.root_ref_mut().map_err(|e| ReaderError::InvalidFormat(format!("YAML tree error: {}", e)))?;
+                match self.node_type {
+                    NodeType::Array => {
+                        root.change_type(ryml::NodeType::Seq).map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                    }
+                    NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap => {
+                        root.change_type(ryml::NodeType::Map).map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                    }
+                    _ => unreachable!(),
+                }
+                
+                // Build the YAML tree from the reader node
+                Self::build_yaml_node(self, root)?;
+                
+                // Emit the YAML string
+                tree.emit().map_err(|e| ReaderError::InvalidFormat(format!("YAML emit error: {}", e)))
+            }
+            NodeType::Null => Ok("null".to_string()),
+            _ => Err(ReaderError::InvalidFormat("Can only serialize Hash, Array, or Null nodes to YAML".to_string())),
+        }
+    }
+
+    /// Build a YAML tree node from a reader node (recursive helper)
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn build_yaml_node<'b, 'e>(
+        reader_node: &BymlNodeReader<'_>,
+        mut yaml_node: ryml::NodeRef<'b, 'e, '_, &'e mut ryml::Tree<'b>>,
+    ) -> ReaderResult<()> {
+        
+        match reader_node.node_type {
+            NodeType::Array => {
+                let array = reader_node.as_array()?;
+                let should_inline = array.len() < 10 && Self::array_is_simple(&array)?;
+                
+                if should_inline {
+                    yaml_node.change_type(ryml::NodeType::Seq | ryml::NodeType::WipStyleFlowSl)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                } else {
+                    yaml_node.change_type(ryml::NodeType::Seq)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                }
+                
+                for i in 0..array.len() {
+                    if let Some(element) = array.get(i) {
+                        let child = yaml_node.append_child()
+                            .map_err(|e| ReaderError::InvalidFormat(format!("YAML append error: {}", e)))?;
+                        Self::build_yaml_node(&element, child)?;
+                    }
+                }
+            }
+            NodeType::Map => {
+                let map = reader_node.as_map()?;
+                let should_inline = map.len() < 10 && Self::map_is_simple(&map)?;
+                
+                if should_inline {
+                    yaml_node.change_type(ryml::NodeType::Map | ryml::NodeType::WipStyleFlowSl)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                } else {
+                    yaml_node.change_type(ryml::NodeType::Map)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                }
+                
+                // Collect and sort keys for consistent output
+                let mut entries = Vec::new();
+                for entry_result in map.iter() {
+                    let (key, value) = entry_result?;
+                    entries.push((key.to_string(), value));
+                }
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                
+                for (key, value) in entries {
+                    let mut child = yaml_node.append_child()
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML append error: {}", e)))?;
+                    child.set_key(&key)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML key error: {}", e)))?;
+                    
+                    if Self::string_needs_quotes(&key) {
+                        let flags = child.node_type()
+                            .map_err(|e| ReaderError::InvalidFormat(format!("YAML flags error: {}", e)))?;
+                        child.set_type_flags(flags | ryml::NodeType::WipKeySquo)
+                            .map_err(|e| ReaderError::InvalidFormat(format!("YAML flags error: {}", e)))?;
+                    }
+                    
+                    Self::build_yaml_node(&value, child)?;
+                }
+            }
+            NodeType::HashMap => {
+                let hash_map = reader_node.as_hash_map()?;
+                let should_inline = hash_map.len() < 10 && Self::hash_map_is_simple(&hash_map)?;
+                
+                if should_inline {
+                    yaml_node.change_type(ryml::NodeType::Map | ryml::NodeType::WipStyleFlowSl)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                } else {
+                    yaml_node.change_type(ryml::NodeType::Map)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                }
+                
+                // Set the tag for hash maps
+                yaml_node.set_val_tag("!h")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+                
+                // Collect and sort keys for consistent output
+                let mut entries = Vec::new();
+                for entry_result in hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    entries.push((key, value));
+                }
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                
+                for (key, value) in entries {
+                    let mut child = yaml_node.append_child()
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML append error: {}", e)))?;
+                    child.set_key(&key.to_string())
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML key error: {}", e)))?;
+                    
+                    Self::build_yaml_node(&value, child)?;
+                }
+            }
+            NodeType::ValueHashMap => {
+                let value_hash_map = reader_node.as_hash_map()?;
+                let should_inline = value_hash_map.len() < 10 && Self::hash_map_is_simple(&value_hash_map)?;
+                
+                if should_inline {
+                    yaml_node.change_type(ryml::NodeType::Map | ryml::NodeType::WipStyleFlowSl)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                } else {
+                    yaml_node.change_type(ryml::NodeType::Map)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML type error: {}", e)))?;
+                }
+                
+                // Set the tag for value hash maps
+                yaml_node.set_val_tag("!vh")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+                
+                // Collect and sort keys for consistent output  
+                let mut entries = Vec::new();
+                for entry_result in value_hash_map.iter() {
+                    let (key, value) = entry_result?;
+                    entries.push((key, value));
+                }
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                
+                for (key, value) in entries {
+                    let mut child = yaml_node.append_child()
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML append error: {}", e)))?;
+                    child.set_key(&key.to_string())
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML key error: {}", e)))?;
+                    
+                    Self::build_yaml_node(&value, child)?;
+                }
+            }
+            // Scalar types
+            _ => Self::build_yaml_scalar(reader_node, yaml_node)?,
+        }
+        
+        Ok(())
+    }
+
+    /// Build a YAML scalar node from a reader node
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn build_yaml_scalar<'b, 'e>(
+        reader_node: &BymlNodeReader<'_>,
+        mut yaml_node: ryml::NodeRef<'b, 'e, '_, &'e mut ryml::Tree<'b>>,
+    ) -> ReaderResult<()> {
+        use crate::yaml::*;
+        
+        match reader_node.node_type {
+            NodeType::String => {
+                let s = reader_node.as_str()?;
+                yaml_node.set_val(s)
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                if Self::string_needs_quotes(s) {
+                    let flags = yaml_node.node_type()
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML flags error: {}", e)))?;
+                    yaml_node.set_type_flags(flags | ryml::NodeType::WipValDquo)
+                        .map_err(|e| ReaderError::InvalidFormat(format!("YAML flags error: {}", e)))?;
+                }
+            }
+            NodeType::Bool => {
+                let b = reader_node.as_bool()?;
+                yaml_node.set_val(if b { "true" } else { "false" })
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+            }
+            NodeType::Float => {
+                let f = reader_node.as_f32()?;
+                let float_str = Self::write_float(f as f64)?;
+                yaml_node.set_val(&float_str)
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+            }
+            NodeType::Double => {
+                let d = reader_node.as_f64()?;
+                let double_str = Self::write_float(d)?;
+                yaml_node.set_val(&double_str)
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!f64")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            NodeType::I32 => {
+                let i = reader_node.as_i32()?;
+                yaml_node.set_val(&lexical::to_string(i))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+            }
+            NodeType::I64 => {
+                let i = reader_node.as_i64()?;
+                yaml_node.set_val(&lexical::to_string(i))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!l")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            NodeType::U32 => {
+                let u = reader_node.as_u32()?;
+                yaml_node.set_val(&format_hex!(&u))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!u")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            NodeType::U64 => {
+                let u = reader_node.as_u64()?;
+                yaml_node.set_val(&format_hex!(&u))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!ul")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            NodeType::Null => {
+                yaml_node.set_val("null")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+            }
+            NodeType::Binary => {
+                let data = reader_node.as_binary()?;
+                let arena = yaml_node.tree().arena_capacity();
+                yaml_node.tree_mut().reserve_arena(arena + data.len());
+                yaml_node.set_val(&base64::engine::general_purpose::STANDARD.encode(data))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!!binary")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            NodeType::File => {
+                let data = reader_node.as_binary()?;
+                let arena = yaml_node.tree().arena_capacity();
+                yaml_node.tree_mut().reserve_arena(arena + data.len());
+                yaml_node.set_val(&base64::engine::general_purpose::STANDARD.encode(data))
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML val error: {}", e)))?;
+                yaml_node.set_val_tag("!!file")
+                    .map_err(|e| ReaderError::InvalidFormat(format!("YAML tag error: {}", e)))?;
+            }
+            _ => return Err(ReaderError::InvalidNodeType(reader_node.node_type as u8)),
+        }
+        
+        Ok(())
+    }
+
+    /// Helper to check if an array contains only simple (non-container) elements
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn array_is_simple(array: &BymlArrayReader<'_>) -> ReaderResult<bool> {
+        for i in 0..array.len() {
+            if let Some(element) = array.get(i) {
+                match element.node_type() {
+                    NodeType::Array | NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap => {
+                        return Ok(false);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(true)
+    }
+
+    /// Helper to check if a map contains only simple (non-container) values
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn map_is_simple(map: &BymlMapReader<'_>) -> ReaderResult<bool> {
+        for entry_result in map.iter() {
+            let (_key, value) = entry_result?;
+            match value.node_type() {
+                NodeType::Array | NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap => {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+        Ok(true)
+    }
+
+    /// Helper to check if a hash map contains only simple (non-container) values
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn hash_map_is_simple(hash_map: &BymlHashMapReader<'_>) -> ReaderResult<bool> {
+        for entry_result in hash_map.iter() {
+            let (_key, value) = entry_result?;
+            match value.node_type() {
+                NodeType::Array | NodeType::Map | NodeType::HashMap | NodeType::ValueHashMap => {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+        Ok(true)
+    }
+
+    /// Helper function to format floating point numbers for YAML
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn write_float(value: f64) -> ReaderResult<String> {
+        use lexical_core::{FormattedSize, ToLexical};
+        
+        let mut buffer = [0u8; f64::FORMATTED_SIZE_DECIMAL + 1];
+        let extra;
+        let buf = if value.is_sign_negative() && value == 0.0 {
+            buffer[0] = b'-';
+            extra = 1;
+            &mut buffer[1..]
+        } else {
+            extra = 0;
+            &mut buffer[..f64::FORMATTED_SIZE_DECIMAL]
+        };
+        
+        let len = value.to_lexical(buf).len() + extra;
+        let result = std::str::from_utf8(&buffer[..len])
+            .map_err(|_| ReaderError::StringEncoding(std::str::Utf8Error::from(std::str::from_utf8(&buffer[..len]).unwrap_err())))?;
+        Ok(result.to_string())
+    }
+
+    /// Helper function to determine if a string needs quotes in YAML
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn string_needs_quotes(value: &str) -> bool {
+        use lexical::parse;
+        
+        matches!(value, "true" | "false")
+            || value.starts_with('!')
+            || (value.contains('.')
+                && (Self::is_infinity(value)
+                    || Self::is_negative_infinity(value)
+                    || Self::is_nan(value)
+                    || parse::<f64, &[u8]>(value.as_bytes()).is_ok()))
+            || parse::<u64, &[u8]>(value.as_bytes()).is_ok()
+            || value == "null"
+            || value == "!"
+            || value == "NULL"
+    }
+
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn is_infinity(input: &str) -> bool {
+        matches!(
+            input,
+            ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF"
+        )
+    }
+
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn is_negative_infinity(input: &str) -> bool {
+        matches!(input, "-.inf" | "-.Inf" | "-.INF")
+    }
+
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    fn is_nan(input: &str) -> bool {
+        matches!(input, ".nan" | ".NaN" | ".NAN")
     }
 }
 
@@ -544,7 +1003,6 @@ impl<'a> BymlArrayReader<'a> {
 pub struct BymlMapReader<'a> {
     reader: &'a BymlReader<'a>,
     keys_offset: u32,
-    values_offset: u32,
     len: u32,
 }
 
@@ -578,13 +1036,9 @@ impl<'a> BymlMapReader<'a> {
         // Keys start immediately after the header
         let keys_offset = offset + 4;
 
-        // Values start after keys (each key entry is 8 bytes: 3 bytes string index + 1 byte node type + 4 bytes value)
-        let values_offset = keys_offset;
-
         Ok(BymlMapReader {
             reader,
             keys_offset,
-            values_offset,
             len,
         })
     }
@@ -654,7 +1108,7 @@ impl<'a> BymlMapReader<'a> {
             ]),
         };
         
-        self.reader.get_hash_key(string_index)
+        self.reader.get_string(string_index)
     }
 
     /// Get the value at a given index
@@ -819,5 +1273,95 @@ impl<'a> BymlHashMapReader<'a> {
     /// Check if the hash map contains a key
     pub fn contains_key(&self, key: u32) -> bool {
         self.get(key).is_some()
+    }
+    
+    /// Iterate over all entries (expensive - O(n) scan)
+    /// Returns an iterator that yields (hash_key, node) pairs
+    pub fn iter(&'a self) -> BymlHashMapIterator<'a> {
+        BymlHashMapIterator {
+            reader: self,
+            index: 0,
+        }
+    }
+}
+
+/// Iterator over BYML hash map entries
+pub struct BymlHashMapIterator<'a> {
+    reader: &'a BymlHashMapReader<'a>,
+    index: usize,
+}
+
+impl<'a> Iterator for BymlHashMapIterator<'a> {
+    type Item = ReaderResult<(u32, BymlNodeReader<'a>)>;
+    
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.reader.len() {
+            return None;
+        }
+        
+        let data = self.reader.reader.data();
+        let endian = self.reader.reader.endian_internal();
+        let offset = self.reader.offset as usize;
+        
+        let entries_start = offset + 4;
+        let entry_offset = entries_start + self.index * 8;
+        
+        if entry_offset + 8 > data.len() {
+            self.index = self.reader.len(); // Prevent further iteration
+            return Some(Err(ReaderError::UnexpectedEnd(entry_offset as u32)));
+        }
+        
+        // Read hash key
+        let hash_key = match endian {
+            Endian::Little => u32::from_le_bytes([
+                data[entry_offset],
+                data[entry_offset + 1], 
+                data[entry_offset + 2],
+                data[entry_offset + 3],
+            ]),
+            Endian::Big => u32::from_be_bytes([
+                data[entry_offset],
+                data[entry_offset + 1],
+                data[entry_offset + 2],
+                data[entry_offset + 3],
+            ]),
+        };
+        
+        // Read value data
+        let mut value_data = [0u8; 8];
+        value_data[0..4].copy_from_slice(&data[entry_offset + 4..entry_offset + 8]);
+        
+        // Get node type
+        let types_start = entries_start + 8 * self.reader.len as usize;
+        let type_offset = types_start as usize + self.index;
+        
+        if type_offset >= data.len() {
+            self.index = self.reader.len(); // Prevent further iteration
+            return Some(Err(ReaderError::UnexpectedEnd(type_offset as u32)));
+        }
+        
+        let node_type_byte = data[type_offset];
+        let node_type = match NodeType::try_from(node_type_byte) {
+            Ok(nt) => nt,
+            Err(_) => {
+                self.index += 1;
+                return Some(Err(ReaderError::InvalidNodeType(node_type_byte)));
+            }
+        };
+        
+        let node = BymlNodeReader::new(
+            self.reader.reader,
+            node_type,
+            value_data,
+            entry_offset as u32 + 4,
+        );
+        
+        self.index += 1;
+        Some(Ok((hash_key, node)))
+    }
+    
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.reader.len() - self.index;
+        (remaining, Some(remaining))
     }
 }

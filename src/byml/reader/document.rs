@@ -151,6 +151,25 @@ impl<'a> BymlReader<'a> {
     pub fn root(&'a self) -> BymlNodeReader<'a> {
         BymlNodeReader::new_root(self, self.header.root_node_offset)
     }
+    
+    /// Convert this reader to an owned Byml document (allocates)
+    /// 
+    /// This method converts the zero-copy reader representation to the owned,
+    /// mutable representation used by the standard BYML API.
+    #[cfg(feature = "byml")]
+    pub fn to_owned(&self) -> ReaderResult<crate::byml::Byml> {
+        self.root().to_owned()
+    }
+
+    /// Serialize the document to YAML text
+    /// 
+    /// This method provides direct YAML serialization from the zero-copy reader
+    /// without allocating intermediate owned structures. The output exactly matches
+    /// the YAML format produced by the owned API.
+    #[cfg(all(feature = "yaml", any(feature = "byml", feature = "byml-read")))]
+    pub fn to_text(&self) -> ReaderResult<String> {
+        self.root().to_text()
+    }
 
     /// Get a string from the string table by index
     pub(crate) fn get_string(&self, index: u32) -> ReaderResult<&'a str> {
@@ -241,12 +260,6 @@ impl<'a> BymlReader<'a> {
     /// Get endianness for internal use
     pub(crate) fn endian_internal(&self) -> Endian {
         self.endian
-    }
-    
-    /// Get root node offset for debugging
-    #[cfg(test)]
-    pub(crate) fn root_offset(&self) -> u32 {
-        self.header.root_node_offset
     }
 }
 
