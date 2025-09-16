@@ -70,10 +70,10 @@ impl<'a> ParameterObjectReader<'a> {
         let param_header = ResParameter::read(&mut cursor).map_err(ReaderError::BinRw)?;
 
         // Calculate the actual data offset (relative to the parameter header position)
-        let data_offset = param_header_offset + (param_header.data_rel_offset.as_u32() * 4);
+        let data_offset = param_header_offset + (param_header.data_rel_offset() * 4);
 
         // Parse the parameter value based on its type
-        let param_value = self.parse_parameter_value(&param_header.type_, data_offset)?;
+        let param_value = self.parse_parameter_value(&param_header.type_(), data_offset)?;
 
         Ok(Some((param_header.name, param_value)))
     }
@@ -208,24 +208,13 @@ impl<'a> ParameterObjectReader<'a> {
 
     /// Parse a string reference parameter
     fn parse_string_ref(&self, data_offset: u32) -> ReaderResult<ParameterReader<'a>> {
-        // String references are stored as a 4-byte offset in the string section
-        let string_offset_bytes = self.data[data_offset as usize..data_offset as usize + 4]
-            .try_into()
-            .map_err(|_| ReaderError::UnexpectedEnd(data_offset))?;
-        let string_offset = u32::from_le_bytes(string_offset_bytes);
-
-        // Parse the header to get the correct string section offset
-        let mut cursor = std::io::Cursor::new(&self.data[..]);
-        let header = crate::aamp::ResHeader::read(&mut cursor).map_err(ReaderError::BinRw)?;
-        let string_section_start = 0x30 + header.data_section_size;
-        let actual_string_offset = string_section_start + string_offset;
-
-        if actual_string_offset as usize >= self.data.len() {
-            return Err(ReaderError::InvalidOffset(actual_string_offset));
+        // StringRef parameters contain null-terminated strings stored directly in the data section
+        if data_offset as usize >= self.data.len() {
+            return Err(ReaderError::InvalidOffset(data_offset));
         }
 
-        // Find the null terminator
-        let string_data = &self.data[actual_string_offset as usize..];
+        // Find the null terminator starting from data_offset
+        let string_data = &self.data[data_offset as usize..];
         let null_pos = string_data
             .iter()
             .position(|&b| b == 0)

@@ -342,10 +342,8 @@ impl<'pio, W: Write + Seek> WriteContext<'pio, W> {
         self.list_count += 1;
         self.writer.write_le(&ResParameterList {
             name,
-            list_count: list.lists.len() as u16,
-            lists_rel_offset: 0,
-            object_count: list.objects.len() as u16,
-            objects_rel_offset: 0,
+            lists_info: (list.lists.len() as u32) << 16, // count in upper 16 bits, offset set later
+            objects_info: (list.objects.len() as u32) << 16, // count in upper 16 bits, offset set later
         })?;
         Ok(())
     }
@@ -356,8 +354,7 @@ impl<'pio, W: Write + Seek> WriteContext<'pio, W> {
         self.object_count += 1;
         self.writer.write_le(&ResParameterObj {
             name,
-            param_count: object.len() as u16,
-            params_rel_offset: 0,
+            params_info: (object.len() as u32) << 16, // count in upper 16 bits, offset set later
         })?;
         Ok(())
     }
@@ -368,8 +365,7 @@ impl<'pio, W: Write + Seek> WriteContext<'pio, W> {
         self.param_count += 1;
         self.writer.write_le(&ResParameter {
             name,
-            type_: param.get_type(),
-            data_rel_offset: u24(0),
+            data_info: (param.get_type() as u32) << 24, // type in upper 8 bits, offset set later
         })?;
         Ok(())
     }

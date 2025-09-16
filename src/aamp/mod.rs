@@ -153,8 +153,19 @@ struct ResHeader {
 #[brw(little)]
 struct ResParameter {
     name: Name,
-    data_rel_offset: u24,
-    type_: Type,
+    data_info: u32, // Bits 0-23: offset/4, Bits 24-31: type
+}
+
+impl ResParameter {
+    fn data_rel_offset(&self) -> u32 {
+        self.data_info & 0xFFFFFF  // 24 bits
+    }
+    
+    fn type_(&self) -> Type {
+        let type_id = (self.data_info >> 24) as u8;
+        // Convert u8 to Type enum - this needs to match the Type enum values
+        unsafe { std::mem::transmute(type_id) }
+    }
 }
 
 #[derive(Debug)]
@@ -162,8 +173,17 @@ struct ResParameter {
 #[brw(little)]
 struct ResParameterObj {
     name: Name,
-    params_rel_offset: u16,
-    param_count: u16,
+    params_info: u32, // Bits 0-15: offset/4, Bits 16-31: count
+}
+
+impl ResParameterObj {
+    fn params_rel_offset(&self) -> u16 {
+        (self.params_info & 0xFFFF) as u16
+    }
+    
+    fn param_count(&self) -> u16 {
+        (self.params_info >> 16) as u16
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -171,10 +191,26 @@ struct ResParameterObj {
 #[brw(little)]
 struct ResParameterList {
     name: Name,
-    lists_rel_offset: u16,
-    list_count: u16,
-    objects_rel_offset: u16,
-    object_count: u16,
+    lists_info: u32,  // Bits 0-15: offset/4, Bits 16-31: count
+    objects_info: u32, // Bits 0-15: offset/4, Bits 16-31: count
+}
+
+impl ResParameterList {
+    fn lists_rel_offset(&self) -> u16 {
+        (self.lists_info & 0xFFFF) as u16
+    }
+    
+    fn list_count(&self) -> u16 {
+        (self.lists_info >> 16) as u16
+    }
+    
+    fn objects_rel_offset(&self) -> u16 {
+        (self.objects_info & 0xFFFF) as u16
+    }
+    
+    fn object_count(&self) -> u16 {
+        (self.objects_info >> 16) as u16
+    }
 }
 
 /// Parameter.

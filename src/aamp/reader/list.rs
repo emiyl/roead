@@ -29,12 +29,12 @@ impl<'a> ParameterListReader<'a> {
 
     /// Get the number of child parameter lists
     pub fn list_count(&self) -> usize {
-        self.header.list_count as usize
+        self.header.list_count() as usize
     }
 
     /// Get the number of child parameter objects
     pub fn object_count(&self) -> usize {
-        self.header.object_count as usize
+        self.header.object_count() as usize
     }
 
     /// Check if this list is empty
@@ -77,7 +77,7 @@ impl<'a> ParameterListReader<'a> {
         }
 
         // Calculate offset to the list headers (relative to this list's header)
-        let lists_offset = self.list_header_offset + (self.header.lists_rel_offset as u32 * 4);
+        let lists_offset = self.list_header_offset + (self.header.lists_rel_offset() as u32 * 4);
         let list_header_offset = lists_offset + (index * 12) as u32; // Each list header is 12 bytes (0xC)
 
         if list_header_offset as usize + 8 > self.data.len() {
@@ -105,7 +105,7 @@ impl<'a> ParameterListReader<'a> {
         }
 
         // Calculate offset to the object headers (relative to this list's header)
-        let objects_offset = self.list_header_offset + (self.header.objects_rel_offset as u32 * 4);
+        let objects_offset = self.list_header_offset + (self.header.objects_rel_offset() as u32 * 4);
         let object_header_offset = objects_offset + (index * 8) as u32; // Each object header is 8 bytes
 
         if object_header_offset as usize + 8 > self.data.len() {
@@ -119,8 +119,8 @@ impl<'a> ParameterListReader<'a> {
         // Create the object reader
         let obj_reader = ParameterObjectReader::new(
             self.data,
-            objects_offset + (object_header.params_rel_offset as u32 * 4),
-            object_header.param_count,
+            objects_offset + (object_header.params_rel_offset() as u32 * 4),
+            object_header.param_count(),
         )?;
 
         Ok(Some((object_header.name, obj_reader)))

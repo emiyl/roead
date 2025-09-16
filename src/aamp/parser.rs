@@ -140,9 +140,9 @@ impl<R: Read + Seek> Parser<R> {
     fn parse_parameter(&mut self, offset: u32) -> Result<(Name, Parameter)> {
         self.seek(offset)?;
         let info: ResParameter = self.read()?;
-        let data_offset = info.data_rel_offset.as_u32() * 4 + offset;
+        let data_offset = info.data_rel_offset() * 4 + offset;
         self.seek(data_offset)?;
-        let value = match info.type_ {
+        let value = match info.type_() {
             Type::Bool => Parameter::Bool(self.read::<u32>()? != 0),
             Type::F32 => Parameter::F32(self.read::<f32>()?),
             Type::Int => Parameter::I32(self.read()?),
@@ -171,8 +171,8 @@ impl<R: Read + Seek> Parser<R> {
     fn parse_object(&mut self, offset: u32) -> Result<(Name, ParameterObject)> {
         self.seek(offset)?;
         let info: ResParameterObj = self.read()?;
-        let offset = info.params_rel_offset as u32 * 4 + offset;
-        let params = (0..info.param_count)
+        let offset = info.params_rel_offset() as u32 * 4 + offset;
+        let params = (0..info.param_count())
             .map(|i| self.parse_parameter(offset + 0x8 * i as u32))
             .collect::<Result<_>>()?;
         Ok((info.name, params))
@@ -181,13 +181,13 @@ impl<R: Read + Seek> Parser<R> {
     fn parse_list(&mut self, offset: u32) -> Result<(Name, ParameterList)> {
         self.seek(offset)?;
         let info: ResParameterList = self.read()?;
-        let lists_offset = info.lists_rel_offset as u32 * 4 + offset;
-        let objects_offset = info.objects_rel_offset as u32 * 4 + offset;
+        let lists_offset = info.lists_rel_offset() as u32 * 4 + offset;
+        let objects_offset = info.objects_rel_offset() as u32 * 4 + offset;
         let plist = ParameterList {
-            lists: (0..info.list_count)
+            lists: (0..info.list_count())
                 .map(|i| self.parse_list(lists_offset + 0xC * i as u32))
                 .collect::<Result<_>>()?,
-            objects: (0..info.object_count)
+            objects: (0..info.object_count())
                 .map(|i| self.parse_object(objects_offset + 0x8 * i as u32))
                 .collect::<Result<_>>()?,
         };
