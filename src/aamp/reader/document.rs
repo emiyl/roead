@@ -42,7 +42,7 @@ impl<'a> ParameterIOReader<'a> {
         
         let root_list = ParameterListReader::new(
             data,
-            root_offset + 8, // Skip the list header (8 bytes)
+            root_offset, // The root list header starts at this offset
             &root_list_header,
         )?;
 

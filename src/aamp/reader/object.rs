@@ -69,8 +69,8 @@ impl<'a> ParameterObjectReader<'a> {
         let mut cursor = Cursor::new(&self.data[param_header_offset as usize..]);
         let param_header = ResParameter::read(&mut cursor).map_err(ReaderError::BinRw)?;
 
-        // Calculate the actual data offset
-        let data_offset = self.params_offset + (param_header.data_rel_offset.as_u32() * 4);
+        // Calculate the actual data offset (relative to the parameter header position)
+        let data_offset = param_header_offset + (param_header.data_rel_offset.as_u32() * 4);
 
         // Parse the parameter value based on its type
         let param_value = self.parse_parameter_value(&param_header.type_, data_offset)?;
@@ -214,8 +214,10 @@ impl<'a> ParameterObjectReader<'a> {
             .map_err(|_| ReaderError::UnexpectedEnd(data_offset))?;
         let string_offset = u32::from_le_bytes(string_offset_bytes);
 
-        // The string section starts after the data section
-        let string_section_start = 0x30u32; // TODO: Calculate this properly from header
+        // Parse the header to get the correct string section offset
+        let mut cursor = std::io::Cursor::new(&self.data[..]);
+        let header = crate::aamp::ResHeader::read(&mut cursor).map_err(ReaderError::BinRw)?;
+        let string_section_start = 0x30 + header.data_section_size;
         let actual_string_offset = string_section_start + string_offset;
 
         if actual_string_offset as usize >= self.data.len() {

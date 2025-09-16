@@ -9,7 +9,7 @@ use std::io::Cursor;
 #[derive(Debug, Clone)]
 pub struct ParameterListReader<'a> {
     data: &'a [u8],
-    base_offset: u32,
+    list_header_offset: u32,  // Offset where this list's header starts
     header: ResParameterList,
 }
 
@@ -17,12 +17,12 @@ impl<'a> ParameterListReader<'a> {
     /// Create a new parameter list reader
     pub(super) fn new(
         data: &'a [u8],
-        base_offset: u32,
+        list_header_offset: u32,
         header: &ResParameterList,
     ) -> ReaderResult<Self> {
         Ok(Self {
             data,
-            base_offset,
+            list_header_offset,
             header: header.clone(),
         })
     }
@@ -76,8 +76,8 @@ impl<'a> ParameterListReader<'a> {
             return Ok(None);
         }
 
-        // Calculate offset to the list headers
-        let lists_offset = self.base_offset + (self.header.lists_rel_offset as u32 * 4);
+        // Calculate offset to the list headers (relative to this list's header)
+        let lists_offset = self.list_header_offset + (self.header.lists_rel_offset as u32 * 4);
         let list_header_offset = lists_offset + (index * 12) as u32; // Each list header is 12 bytes (0xC)
 
         if list_header_offset as usize + 8 > self.data.len() {
@@ -91,7 +91,7 @@ impl<'a> ParameterListReader<'a> {
         // Create the child list reader
         let child_reader = ParameterListReader::new(
             self.data,
-            list_header_offset + 8, // Skip the list header (8 bytes)
+            list_header_offset, // The child list's header starts at this offset
             &list_header,
         )?;
 
@@ -104,8 +104,8 @@ impl<'a> ParameterListReader<'a> {
             return Ok(None);
         }
 
-        // Calculate offset to the object headers
-        let objects_offset = self.base_offset + (self.header.objects_rel_offset as u32 * 4);
+        // Calculate offset to the object headers (relative to this list's header)
+        let objects_offset = self.list_header_offset + (self.header.objects_rel_offset as u32 * 4);
         let object_header_offset = objects_offset + (index * 8) as u32; // Each object header is 8 bytes
 
         if object_header_offset as usize + 8 > self.data.len() {
