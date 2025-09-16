@@ -39,7 +39,8 @@ impl<'a> ParameterObjectReader<'a> {
     }
 
     /// Get a parameter by name
-    pub fn get(&self, name: Name) -> Option<ParameterReader<'a>> {
+    pub fn get(&self, name: impl Into<Name>) -> Option<ParameterReader<'a>> {
+        let name = name.into();
         // Find parameter by iterating through all parameters
         for i in 0..self.param_count() {
             if let Ok(Some((param_name, param_reader))) = self.get_parameter_at_index(i) {
@@ -69,7 +70,7 @@ impl<'a> ParameterObjectReader<'a> {
         let param_header = ResParameter::read(&mut cursor).map_err(ReaderError::BinRw)?;
 
         // Calculate the actual data offset
-        let data_offset = self.params_offset + param_header.data_rel_offset.as_u32();
+        let data_offset = self.params_offset + (param_header.data_rel_offset.as_u32() * 4);
 
         // Parse the parameter value based on its type
         let param_value = self.parse_parameter_value(&param_header.type_, data_offset)?;

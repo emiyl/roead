@@ -30,7 +30,8 @@ impl<'a> ParameterIOReader<'a> {
         }
 
         // Calculate root list offset (relative to 0x30)
-        let root_offset = 0x30 + header.pio_offset;
+        // The owned parser uses: self.header.pio_offset + 0x30
+        let root_offset = header.pio_offset + 0x30;
         if root_offset as usize >= data.len() {
             return Err(ReaderError::InvalidOffset(root_offset));
         }
@@ -54,8 +55,8 @@ impl<'a> ParameterIOReader<'a> {
 
     /// Get the document type (usually "xml")
     pub fn doc_type(&self) -> ReaderResult<&'a str> {
-        // The doc type is stored as a null-terminated string starting at offset 0x30 + string_section_size
-        let string_section_start = 0x30 + self.header.data_section_size;
+        // The doc type is stored as a null-terminated string starting at offset 0x30
+        let string_section_start = 0x30;
         if string_section_start as usize >= self.data.len() {
             return Err(ReaderError::InvalidOffset(string_section_start));
         }
@@ -110,7 +111,7 @@ impl<'a> ParameterIOReader<'a> {
     pub fn to_text(&self) -> crate::Result<String> {
         // Convert to owned format and then use existing YAML serialization
         let owned = self.to_owned()?;
-        owned.to_text()
+        Ok(owned.to_text())
     }
 }
 

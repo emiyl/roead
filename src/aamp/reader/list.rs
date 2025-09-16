@@ -43,7 +43,8 @@ impl<'a> ParameterListReader<'a> {
     }
 
     /// Get a child parameter list by name
-    pub fn get_list(&self, name: Name) -> Option<ParameterListReader<'a>> {
+    pub fn get_list(&self, name: impl Into<Name>) -> Option<ParameterListReader<'a>> {
+        let name = name.into();
         // Find the list by iterating through all lists
         for i in 0..self.list_count() {
             if let Ok(Some((list_name, list_reader))) = self.get_list_at_index(i) {
@@ -56,7 +57,8 @@ impl<'a> ParameterListReader<'a> {
     }
 
     /// Get a child parameter object by name
-    pub fn get_object(&self, name: Name) -> Option<ParameterObjectReader<'a>> {
+    pub fn get_object(&self, name: impl Into<Name>) -> Option<ParameterObjectReader<'a>> {
+        let name = name.into();
         // Find the object by iterating through all objects
         for i in 0..self.object_count() {
             if let Ok(Some((obj_name, obj_reader))) = self.get_object_at_index(i) {
@@ -75,8 +77,8 @@ impl<'a> ParameterListReader<'a> {
         }
 
         // Calculate offset to the list headers
-        let lists_offset = self.base_offset + self.header.lists_rel_offset as u32;
-        let list_header_offset = lists_offset + (index * 8) as u32; // Each list header is 8 bytes
+        let lists_offset = self.base_offset + (self.header.lists_rel_offset as u32 * 4);
+        let list_header_offset = lists_offset + (index * 12) as u32; // Each list header is 12 bytes (0xC)
 
         if list_header_offset as usize + 8 > self.data.len() {
             return Err(ReaderError::UnexpectedEnd(list_header_offset));
@@ -89,7 +91,7 @@ impl<'a> ParameterListReader<'a> {
         // Create the child list reader
         let child_reader = ParameterListReader::new(
             self.data,
-            lists_offset + list_header.lists_rel_offset as u32,
+            list_header_offset + 8, // Skip the list header (8 bytes)
             &list_header,
         )?;
 
@@ -103,7 +105,7 @@ impl<'a> ParameterListReader<'a> {
         }
 
         // Calculate offset to the object headers
-        let objects_offset = self.base_offset + self.header.objects_rel_offset as u32;
+        let objects_offset = self.base_offset + (self.header.objects_rel_offset as u32 * 4);
         let object_header_offset = objects_offset + (index * 8) as u32; // Each object header is 8 bytes
 
         if object_header_offset as usize + 8 > self.data.len() {
@@ -117,7 +119,7 @@ impl<'a> ParameterListReader<'a> {
         // Create the object reader
         let obj_reader = ParameterObjectReader::new(
             self.data,
-            objects_offset + object_header.params_rel_offset as u32,
+            objects_offset + (object_header.params_rel_offset as u32 * 4),
             object_header.param_count,
         )?;
 
