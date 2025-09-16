@@ -119,7 +119,7 @@ impl<'a> ParameterListReader<'a> {
         // Create the object reader
         let obj_reader = ParameterObjectReader::new(
             self.data,
-            objects_offset + (object_header.params_rel_offset() as u32 * 4),
+            object_header_offset + (object_header.params_rel_offset() as u32 * 4),
             object_header.param_count(),
         )?;
 

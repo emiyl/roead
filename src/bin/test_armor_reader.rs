@@ -236,7 +236,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         
-        // Test SInst object for Action_8 and Action_9 (they should have AnimeDrivenSettings: 1)
+        println!("Action list summary: {}/{} action structures correct", correct_actions, expected_actions.len());
+        
+    } else {
+        println!("✗ Action list not found - TEST FAILED");
+        return Err("Missing Action list".into());
+    }
+    
+    // Test SInst object for Action_8 and Action_9 (they should have AnimeDrivenSettings: 1)
+    let mut sinst_tests_passed = 0;
+    let sinst_expected_count = 2; // Action_8 and Action_9
+    
+    if let Some(action_list) = reader.list("Action") {
         for action_name in ["Action_8", "Action_9"] {
             if let Some(action_sublist) = action_list.get_list(action_name) {
                 if let Some(sinst_obj) = action_sublist.get_object("SInst") {
@@ -245,6 +256,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Ok(value) => {
                                 if value == 1 {
                                     println!("✓ {}.SInst.AnimeDrivenSettings: {} (correct)", action_name, value);
+                                    sinst_tests_passed += 1;
                                 } else {
                                     println!("✗ {}.SInst.AnimeDrivenSettings: {} (expected 1)", action_name, value);
                                 }
@@ -261,12 +273,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        
-        println!("Action list summary: {}/{} action structures correct", correct_actions, expected_actions.len());
-        
-    } else {
-        println!("✗ Action list not found - TEST FAILED");
-        return Err("Missing Action list".into());
     }
     
     // Test other top-level lists exist and are empty
@@ -386,13 +392,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ DemoAIActionIdx object: PASSED (all 20 parameters correct)");
     println!("✅ Action list structure: PASSED (21 action sublists found)");
     println!("✅ Action sublist details: PASSED (Name, ClassName, GroupName validated)");
-    println!("✅ SInst objects: PASSED (AnimeDrivenSettings validated)");
+    
+    // Fix the SInst reporting to use actual results
+    if sinst_tests_passed == sinst_expected_count {
+        println!("✅ SInst objects: PASSED ({}/{} AnimeDrivenSettings validated)", sinst_tests_passed, sinst_expected_count);
+    } else {
+        println!("✗ SInst objects: FAILED ({}/{} AnimeDrivenSettings validated)", sinst_tests_passed, sinst_expected_count);
+    }
+    
     println!("✅ Empty lists: PASSED (AI, Behavior, Query all empty)");
     println!("✅ Performance: PASSED (full structure scan completed)");
     println!("✅ String access: PASSED ({}/{} string parameters accessible)", correct_strings, string_tests);
     
-    println!("\n🎉 ALL TESTS PASSED - ARMOR.BAIPROG CORRECTLY PARSED WITH READER API!");
-    println!("The AAMP zero-copy reader successfully read and validated all expected data from the YAML specification.");
+    // Only show success if all tests actually passed
+    if sinst_tests_passed == sinst_expected_count {
+        println!("\n🎉 ALL TESTS PASSED - ARMOR.BAIPROG CORRECTLY PARSED WITH READER API!");
+        println!("The AAMP zero-copy reader successfully read and validated all expected data from the YAML specification.");
+    } else {
+        println!("\n❌ SOME TESTS FAILED - SInst object parsing needs investigation");
+        println!("The AAMP zero-copy reader has remaining issues with SInst object access.");
+    }
     
     Ok(())
 }
