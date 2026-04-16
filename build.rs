@@ -1,18 +1,21 @@
-use std::path::Path;
 use std::env;
+use std::path::Path;
 #[cfg(feature = "yaz0")]
 fn build_zlib() {
     let target = env::var("TARGET").unwrap();
     let mut cmake = std::process::Command::new("cmake");
     cmake.current_dir("lib/zlib-ng");
     if target.contains("aarch64-apple-darwin") {
-        cmake.arg("-DCMAKE_OSX_ARCHITECTURES=arm64");
+        cmake
+            .arg("-DCMAKE_OSX_ARCHITECTURES=arm64")
+            .arg("-DWITH_NEON=OFF");
     } else if target.contains("x86_64-apple-darwin") {
         cmake.arg("-DCMAKE_OSX_ARCHITECTURES=x86_64");
     } else {
         //Not OSX
     }
-    cmake.arg(".")
+    cmake
+        .arg(".")
         .output()
         .expect("Failed to build zlib. Is CMake installed?");
     std::process::Command::new("cmake")
@@ -59,7 +62,10 @@ fn main() {
     println!("cargo:rerun-if-changed=src/yaz0.cpp");
     println!("cargo:rerun-if-changed=src/include/oead/yaz0.h");
     let dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    println!("cargo:rustc-link-search=native={}", Path::new(&dir).join("lib/zlib-ng").display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        Path::new(&dir).join("lib/zlib-ng").display()
+    );
 }
 
 #[cfg(not(feature = "yaz0"))]
