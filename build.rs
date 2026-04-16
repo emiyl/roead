@@ -9,7 +9,7 @@ fn build_zlib() {
     cmake.current_dir("lib/zlib-ng");
     if target.contains("aarch64-apple-darwin") {
         cmake
-		.arg("-DCMAKE_OSX_ARCHITECTURES=arm64")
+			.arg("-DCMAKE_OSX_ARCHITECTURES=arm64")
         	.arg("-DWITH_NEON=OFF");
     } else if target.contains("x86_64-apple-darwin") {
         cmake.arg("-DCMAKE_OSX_ARCHITECTURES=x86_64");
